@@ -20,90 +20,89 @@ class ExitCode(Enum):
 	internal	= 4	# Internal error during test execution
 	sigrok_fail	= 5	# sigrok-cli error
 
-#print(json.dumps(test_vectors, indent='\t'))
-
 # JSON schema for validating test vectors
 schema = {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "type": "object",
-  "patternProperties": {
-    "^[a-zA-Z0-9_\\-]+$": {
-      "type": "object",
-	  "description": "Decoder name",
-      "patternProperties": {
-        "^[a-zA-Z0-9_\\-]+$": {
-          "type": "object",
-		  "description": "Sample name",
-          "properties": {
-            "path": {
-              "type": "string",
-              "description": "Sample-specific path (optional)"
-            }
-          },
-          "patternProperties": {
-            "^(?!path$)[a-zA-Z0-9_\\-]+$": {
-              "type": "object",
-			  "description": "Test name",
-              "properties": {
-                "options": {
-                  "type": "string",
-                  "description": "Decoder options (optional)"
-                },
-                "annotate": {
-                  "type": "string",
-                  "description": "Annotation flags (optional)"
-                },
-                "desc": {
-                  "type": "string",
-                  "description": "Test description (optional)"
-                },
-                "size": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "description": "Size of the test data"
-                },
-                "crc": {
-                  "type": "string",
-                  "pattern": "^0x[0-9a-fA-F]+$",
-                  "description": "CRC checksum in hexadecimal"
-                },
-                "blake2b": {
-                  "type": "string",
-				  "pattern": "^[0-9a-fA-F]{128}$",
-                  "description": "Blake2b hash"
-                },
-                "sha256": {
-                  "type": "string",
-				  "pattern": "^[0-9a-fA-F]{64}$",
-                  "description": "SHA256 hash"
-                }
-              },
-              "required": ["size", "crc", "blake2b", "sha256"],
-              "additionalProperties": False
-            }
-          },
-          "additionalProperties": False
-        }
-      },
-      "additionalProperties": False
-    }
-  },
-  "additionalProperties": False
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"type": "object",
+	"patternProperties": {
+		"^[a-zA-Z0-9_\\-]+$": {
+			"type": "object",
+			"description": "Decoder name",
+			"patternProperties": {
+				"^[a-zA-Z0-9_\\-]+$": {
+					"type": "object",
+					"description": "Sample name",
+					"properties": {
+						"path": {
+							"type": "string",
+							"description": "Sample-specific path (optional)"
+						}
+					},
+					"patternProperties": {
+						"^(?!path$)[a-zA-Z0-9_\\-]+$": {
+							"type": "object",
+							"description": "Test name",
+							"properties": {
+								"options": {
+									"type": "string",
+									"description": "Decoder options (optional)"
+								},
+								"annotate": {
+									"type": "string",
+									"description": "Annotation flags (optional)"
+								},
+								"desc": {
+									"type": "string",
+									"description": "Test description (optional)"
+								},
+								"size": {
+									"type": "integer",
+									"minimum": 0,
+									"description": "Size of the test data"
+								},
+								"crc": {
+									"type": "string",
+									"pattern": "^0x[0-9a-fA-F]+$",
+									"description": "CRC checksum in hexadecimal"
+								},
+								"blake2b": {
+									"type": "string",
+									"pattern": "^[0-9a-fA-F]{128}$",
+									"description": "Blake2b hash"
+								},
+								"sha256": {
+									"type": "string",
+									"pattern": "^[0-9a-fA-F]{64}$",
+									"description": "SHA256 hash"
+								}
+							},
+							"required": ["size", "crc", "blake2b", "sha256"],
+							"additionalProperties": False
+						}
+					},
+					"additionalProperties": False
+				}
+			},
+			"additionalProperties": False
+		}
+	},
+	"additionalProperties": False
 }
 
 def dict_merge_preserve_source_order(source, add_this):
-	# dont change order so it matches whatever load_json loaded
 	result = {}
 	for key in source:
-		if key in add_this and isinstance(source[key], dict) and isinstance(add_this[key], dict):
+		if (
+			key in add_this
+			and isinstance(source[key], dict)
+			and isinstance(add_this[key], dict)
+		):
 			result[key] = dict_merge_preserve_source_order(source[key], add_this[key])
 		else:
 			result[key] = add_this.get(key, source[key])
-
 	for key in add_this:
 		if key not in source:
 			result[key] = add_this[key]
-
 	return result
 
 def load_json(json_file):
@@ -111,27 +110,23 @@ def load_json(json_file):
 		with open(json_file, 'r') as f:
 			data = json.load(f)
 	except FileNotFoundError:
-		print_(f"Error: JSON file {json_file} not found")
-		sys.exit(ExitCode.internal.value)
+		parser.error(f"Error: JSON file {json_file} not found", ExitCode.internal.value)
 	except json.JSONDecodeError as e:
-		print_(f"Error: Invalid JSON format in {json_file}: {e}")
-		sys.exit(ExitCode.internal.value)
+		parser.error(f"Error: Invalid JSON format in {json_file}: {e}", ExitCode.internal.value)
 	except Exception as e:
-		print_(f"JSON: An unexpected error occurred loading {json_file}: {e}")
-		sys.exit(ExitCode.internal.value)
+		parser.error(f"JSON: An unexpected error occurred loading {json_file}: {e}", ExitCode.internal.value)
 
 	if globals.jsonschema:
 		from jsonschema import validate, ValidationError
 		try:
 			validate(instance=data, schema=schema)
 		except ValidationError as e:
-			print_(f"JSON file '{json_file}' validation Error: {e.message}")
-			print_(f"Path to error: {list(e.path)}")
-			print_(f"Bad instance: {e.instance}")
-			sys.exit(ExitCode.internal.value)
+			parser.error(f"JSON file '{json_file}' validation Error: {e.message}\n"
+				+ f"Path to error: {list(e.path)}\n"
+				+ f"Bad instance: {e.instance}", ExitCode.internal.value)
 	return data
-		
-def check_path(file, file_path, mode = os.R_OK):
+
+def check_path(file, file_path, mode=os.R_OK):
 	test_path = os.path.join(file_path, file)
 	if os.path.isfile(test_path):
 		if os.access(test_path, mode):
@@ -144,10 +139,12 @@ def check_path(file, file_path, mode = os.R_OK):
 # ----------------------------------------------------------------------------
 # special -q --quiet handling
 def print_(*args):
-	if not globals.quiet: print(" ".join(map(str, args)))
+	if not globals.quiet:
+		print(" ".join(map(str, args)))
 
 def print_d(*args):
-	if globals.debug: print(" ".join(map(str, args)))
+	if globals.debug:
+		print(" ".join(map(str, args)))
 
 class QuietArgumentParser(argparse.ArgumentParser):
 	def __init__(self, *args, **kwargs):
@@ -160,7 +157,8 @@ class QuietArgumentParser(argparse.ArgumentParser):
 		arg_all = set(args)
 
 		# print help when no arguments
-		if not arg_all: self.print_help()
+		if not arg_all:
+			self.print_help()
 
 		# manually catch quiet and debug, need those early. Truthiness is all we need.
 		globals.quiet = args.count('-q') + args.count('--quiet')
@@ -171,14 +169,14 @@ class QuietArgumentParser(argparse.ArgumentParser):
 		# CustomLAction process its 'default'. We do it so help screen can display
 		# loaded defaults
 		arg_l = list(arg_all.intersection(set(['-l', '--load_tests'])))
-		
+
 		if not arg_l:
 			for action in self._actions:
 				if action.dest == 'load_tests':
 					action(self, None, action.default)
 					break
 		else: # also guard against '-l' being after -t or -r. we need it first
-			arg_t_r = list(arg_all.intersection(set(['-t', '--test', '-r', '--regen'])))
+			arg_t_r = list(arg_all.intersection(set(['-t', '--test', '-r', '--reference'])))
 			if arg_t_r:
 				position_l = len(args) - 1 - list(reversed(args)).index(arg_l[0])
 				position = args.index(arg_t_r[0])
@@ -188,7 +186,7 @@ class QuietArgumentParser(argparse.ArgumentParser):
 		parsed_args = super().parse_args(args, namespace)
 		return parsed_args
 
-	def error(self, message, code = ExitCode.commandline.value):
+	def error(self, message, code=ExitCode.commandline.value):
 		if not globals.quiet:
 			self.print_usage()
 			self.exit(code, f"error: {message}\n")
@@ -198,6 +196,7 @@ class QuietArgumentParser(argparse.ArgumentParser):
 		if not globals.quiet:
 			super().print_help()
 		sys.exit(ExitCode.commandline.value)
+
 # ----------------------------------------------------------------------------
 class CustomLAction(argparse.Action):
 	def __call__(self, parser, namespace, values, option_string=None):
@@ -221,16 +220,17 @@ class CustomLAction(argparse.Action):
 			for value in values:
 				tests = load_json(value)
 				print_d(f"Loaded {value} tests")
-				if globals.debug > 1: print_d(json.dumps(tests, indent='\t'))
+				if globals.debug > 1:
+					print_d(json.dumps(tests, indent='\t'))
 				loaded_tests.append(value)
-				
+
 				test_everything = 1
 				if test_everything:
 					for decoder in tests:
 						for sample in tests[decoder]:
-							if sample == 'path':  # Handle path at decoder level
+							if sample == 'path':
 								continue
-							file_path, file_path_result = check_path(sample+'.sr', tests[decoder][sample].get('path', ''))
+							file_path, file_path_result = check_path(sample + '.sr', tests[decoder][sample].get('path', ''))
 							match file_path_result:
 								case 0:
 									print_d(f"The file '{file_path}' exists and is accessible.")
@@ -239,13 +239,10 @@ class CustomLAction(argparse.Action):
 								case 2:
 									parser.error(f"The file '{file_path}' does not exist.")
 
-							# Clean up path if it exists
-							if 'path' in tests[decoder][sample]:
-								del tests[decoder][sample]['path']
-
 				test_vectors.update(tests)
 
-		if namespace: setattr(namespace, self.dest, test_vectors)
+		if namespace:
+			setattr(namespace, self.dest, test_vectors)
 
 class CustomTAction(argparse.Action):
 	def __init__(self, option_strings, dest, nargs=None, **kwargs):
@@ -260,18 +257,29 @@ class CustomTAction(argparse.Action):
 			parser.error(f"Default {parser.get_default('load_tests')} not loaded or empty, no decoder:sample:test(s) available.")
 
 		if values == ['all']:
-			test_list = [(decoder, sample, test) for decoder in test_vectors 
-						for sample in test_vectors[decoder] 
-						if sample != 'path' 
-						for test in test_vectors[decoder][sample]]
-		# empty -t or with one bad argument
+			test_list = [
+				(decoder, sample, test)
+				for decoder in test_vectors
+				for sample in test_vectors[decoder]
+				for test in test_vectors[decoder][sample]
+				if test != 'path'
+			]
+		# empty -t
 		elif not values:
-			parser.error(f"Loaded {loaded_tests} test vectors, available decoder:sample:test combinations:\n " +
-				'\n '.join([f"{decoder}:{sample}:{':'.join(tests.keys())}" for decoder in test_vectors for sample in test_vectors[decoder] if sample != 'path' for tests in [test_vectors[decoder][sample]]]))
+			parser.error(
+				f"Loaded {loaded_tests} test vectors, available decoder:sample:test combinations:\n "
+				+ '\n '.join([
+					f"{decoder}:{sample}:{':'.join(key for key in tests.keys() if key != 'path')}"
+					for decoder in test_vectors
+					for sample in test_vectors[decoder]
+					for tests in [test_vectors[decoder][sample]]
+				])
+			)
+		# one or more bad -t arguments
 		else:
 			for value in values:
 				# "decoder1:sample1:test1:test2" -> (["decoder1", "sample1", "test1"], ["decoder1", "sample1", "test2"])
-				
+
 				# extract decoder:sample:tests, ugly but works. FIXME?
 				parts = list(map(str.strip, value.strip(':').split(':')))
 				if len(parts) == 0:
@@ -295,22 +303,39 @@ class CustomTAction(argparse.Action):
 
 				if sample == 'path':
 					parser.error(f"'path' is an illegal sample name. Available samples for '{decoder}':\n {available_samples}")
-				
+
 				if sample not in test_vectors[decoder]:
 					parser.error(f"Invalid sample name '{sample}' for decoder '{decoder}' in '{option_string} {value}'. Available samples for '{decoder}':\n {available_samples}")
 
 				# sample valid, but no tests given
 				if len(tests) == 0:
-					# sphagetti oneliner to handle stupid optional "desc" field, use longest sample name to left align/pad spaces (<) to nicely line up dashes
-					parser.error(f"'{option_string} {decoder}:{sample}' requires at least one test name. Available tests:\n " +
-						'\n '.join([f"{k:<{len(max(test_vectors[decoder][sample],key=len))}} - {v['desc']}" if 'desc' in v else k for k, v in test_vectors[decoder][sample].items()]))
+					# list comprehension filter to handle stupid optional "desc" field, use longest sample name to left align/pad spaces (<) to nicely line up dashes
+					max_key_len = len(max((k for k in test_vectors[decoder][sample].keys() if k != 'path'), key=len, default=''))
+					if max_key_len:
+						parser.error(
+							f"'{option_string} {decoder}:{sample}' requires at least one test name. Available tests:\n "
+							+ '\n '.join([
+								f"{key:<{max_key_len}} - {value['desc']}"
+								if 'desc' in value else key
+								for key, value in test_vectors[decoder][sample].items()
+								if key != 'path'
+							])
+						)
+					else:
+						parser.error(f"No tests available for {decoder}:{sample}' decoder:sample combination.")
 
 				# Validate test names
 				for test in tests:
 					if test not in test_vectors[decoder][sample]:
-						# same sphagetti oneliner as above
-						parser.error(f"Invalid test '{test}' for '{decoder}:{sample}' in '{option_string} {value}'. Available tests:\n " +
-							'\n '.join([f"{k:<{len(max(test_vectors[decoder][sample],key=len))}} - {v['desc']}" if 'desc' in v else k for k, v in test_vectors[decoder][sample].items()]))
+						# same list comprehension filter as above
+						parser.error(
+							f"Invalid test '{test}' for '{decoder}:{sample}' in '{option_string} {value}'. Available tests:\n "
+							+ '\n '.join([
+								f"{k:<{len(max(test_vectors[decoder][sample],key=len))}} - {v['desc']}"
+								if 'desc' in v else k
+								for k, v in test_vectors[decoder][sample].items()
+							])
+						)
 					test_list.append([decoder, sample, test])
 
 		setattr(namespace, self.dest, test_list)
@@ -320,26 +345,26 @@ def save_json(json_file, data):
 		with open(json_file, "w") as f:
 			json.dump(data, f, indent='\t')
 	except IOError as e:
-		print_(f"Error: Could not write to file {json_file}. Check permissions or path. ({e})")
-		sys.exit(ExitCode.internal.value)
+		parser.error(f"Error: Could not write to file {json_file}. Check permissions or path. ({e})", ExitCode.internal.value)
 	except Exception as e:
-		print_(f"JSON: An unexpected error occurred: {e}")
-		sys.exit(ExitCode.internal.value)
+		parser.error(f"JSON: An unexpected error occurred: {e}", ExitCode.internal.value)
 
 def sigrok_cli(decoder, sample, test):
 	try:
 		test_vector = test_vectors[decoder][sample][test]
 		option = test_vector['options'] if 'options' in test_vector else ''
 		annotate = test_vector['annotate'] if 'annotate' in test_vector else ''
-		output_file = f"{decoder}_{sample}_{test}"
-		print_d(f"{args.sigrok_path} -D -i ../test/{sample}.sr -P {decoder}:{option} -A {decoder}={annotate}")
+		sample_dir = test_vectors[decoder][sample].get('path', '')
+		sample_path = os.path.join(sample_dir, f"{sample}.sr")
+
+		print_d(f"{args.sigrok_path} -D -i {sample_path} -P {decoder}:{option} -A {decoder}={annotate}")
 
 		# Run sigrok-cli, pump output into a pipe
 		proc_sig = subprocess.Popen([
 			args.sigrok_path,
 			"-D",			# dont scan for hardware probes
 			"-i",			# load our test sample
-			f"../test/{sample}.sr",
+			f"{sample_path}",
 			"-P",			# set decoder options
 			f"{decoder}:{option}",
 			"-A",			# set decoder annotations
@@ -350,32 +375,42 @@ def sigrok_cli(decoder, sample, test):
 			text=False		# binary mode
 		)
 
-		proc_7z = subprocess.Popen([
-			args.sevenzip_path,
-			"u",			# update archive if already present
-			"-mx1",
-			f"-si{output_file}",	# piped input
-			f"{output_file}.7z"],
-			stdin=subprocess.PIPE,
-			stdout=subprocess.PIPE,
-			stderr=subprocess.PIPE,
-			text=False
-		)
-
 		hash_blake2b = hashlib.blake2b()
 		hash_sha256 = hashlib.sha256()
 		checksum = 0
 		size = 0
 
+		output_file = f"{decoder}-{sample}-{test}"
+		f = None
+
+		if args.sevenzip_path != 'none':
+			output_path = output_file + '.7z'
+			proc_7z = subprocess.Popen([
+				args.sevenzip_path,
+				"u",	# update archive if already present
+				"-mx1",	# barely any compression, its temporary anyway
+				f"-si{output_file}",	# piped input
+				output_path],
+				stdin=subprocess.PIPE,
+				stdout=subprocess.PIPE,
+				stderr=subprocess.PIPE,
+				text=False
+			)
+			f = proc_7z.stdin
+		else:
+			output_dir = './'
+			if args.reference:
+				output_dir = './reference'
+				os.makedirs(output_dir, exist_ok=True)
+			output_path = os.path.join(output_dir, f"{output_file}")
+			f = open(output_path, 'wb')
+
 		# pump that pipe Mario
 		while True:
-			# show_progress flag used only to make sure we dont print inside
-			# a lock, no idea if makes any sense considering python GIL
-			show_progress = False
 			data = proc_sig.stdout.read(65535)
 			if not data:
 				break
-			proc_7z.stdin.write(data)
+			f.write(data)
 
 			size += len(data)
 			checksum = zlib.crc32(data, checksum)
@@ -386,79 +421,93 @@ def sigrok_cli(decoder, sample, test):
 				with lock:
 					globals.counter += len(data)
 					if globals.counter > (globals.size * (globals.progress * 0.01)) or globals.counter == globals.size:
+						print(f"Progress: {globals.progress}% \r", end="")
 						globals.progress += args.progress
-						show_progress = globals.progress
-				if show_progress:
-					print(f"Progress: {int((show_progress - args.progress))}% \r", end="")
 
-		proc_7z.stdin.flush()
-		proc_7z.stdin.close()
+		f.flush()
+		f.close()
 
-		# Wait for sigrok process to complete
-		# FIXME: this is most likely wrong, timeout is set too late and you
-		# only need communicate or wait, not both
 		proc_sig.wait()
-		stdout2, stderr2 = proc_7z.communicate(timeout=args.timeout)
-		proc_7z.wait()
-		_, stderr1 = proc_sig.communicate()
-		
-		if proc_sig.returncode != 0:
-			print_(f"sigrok-cli error (exit code:{proc_sig.returncode}) for {decoder}:{sample}:{test}: {stderr1.decode()}")
-			sys.exit(ExitCode.sigrok_fail.value)
 
-		if proc_7z.returncode != 0:
-			print_(f"7z error (exit code:{proc_7z.returncode}) for job {decoder}:{sample}:{test}: {stderr2.decode()}")
-			# clean up potential leftover .7z.tmp garbage
-			if os.path.exists(f"{output_file}.7z.tmp"):
-				os.remove(f"{output_file}.7z.tmp")
-			sys.exit(ExitCode.internal.value)
+		_, stderr1 = proc_sig.communicate()
+		if proc_sig.returncode != 0:
+			parser.error(f"sigrok-cli error (exit code:{proc_sig.returncode}) for {decoder}:{sample}:{test}: {stderr1.decode()}", ExitCode.sigrok_fail.value)
+
+		if args.sevenzip_path != 'none':
+			proc_7z.wait()
+			# FIXME: this is wrong, timeout is set too late
+			stdout2, stderr2 = proc_7z.communicate(timeout=args.timeout)
+			if proc_7z.returncode != 0:
+				# clean up potential leftover .7z.tmp garbage
+				if os.path.exists(f"{output_path}.tmp"):
+					os.remove(f"{output_path}.tmp")
+				parser.error(f"7z (exit code:{proc_7z.returncode}) for job {decoder}:{sample}:{test} file {output_path}: {stderr2.decode()}", ExitCode.internal.value)
 
 	except Exception as e:
-		print_(f"sigrok_cli or 7z instance {decoder}:{sample}:{test} failed: {e}")
-		sys.exit(ExitCode.internal.value)
+		parser.error(f"sigrok_cli or Output processing for {decoder}:{sample}:{test} failed: {e}", ExitCode.internal.value)
 
-	return {decoder: {sample: {test: {'size': size, 'crc': hex(checksum), 'blake2b': hash_blake2b.hexdigest(), 'sha256': hash_sha256.hexdigest()}}}}
+	return {
+		decoder: {
+			sample: {
+				test: {
+					'size': size,
+					'crc': hex(checksum),
+					'blake2b': hash_blake2b.hexdigest(),
+					'sha256': hash_sha256.hexdigest()
+				}
+			}
+		}
+	}
 
 def reference_pack(test_list):
+	if args.sevenzip_path == 'none':
+		print_d("No 7z compression for reference packing.")
+		return
 	try:
 		for decoder, sample, test in test_list:
-			output_file = f"{decoder}_{sample}_{test}"
+			output_file = f"{decoder}-{sample}-{test}"
 
 			first_7z = f"{args.sevenzip_path} e {output_file}.7z {output_file} -so"
-			second_7z = f"{args.sevenzip_path} u -mx9 -si{output_file} reference.7z"
+			second_7z = f'"{args.sevenzip_path}" u -mx9 -si{output_file} reference.7z'
 			print_d(first_7z + " | " + second_7z)
-			
-			subprocess.Popen(first_7z + " | " + second_7z,
+
+			proc_7z1 = subprocess.Popen(
+				first_7z,
 				stdout=subprocess.PIPE,
 				stderr=subprocess.PIPE,
 				text=False,
-				shell=True
+			)
+			proc_7z2 = subprocess.run(
+				second_7z,
+				stdin=proc_7z1.stdout,
+				stdout=subprocess.PIPE,
+				stderr=subprocess.PIPE,
+				text=False,
 			)
 
-			_, stderr2 = proc_7z.communicate(timeout=args.timeout)
-			proc_7z.wait()
-			if proc_7z.returncode != 0:
-				print_(f"7z error (exit code:{proc_7z.returncode}) reference packing failed for {output_file}: {stderr2.decode()}")
-				# clean up potential leftover .tmp garbage
-				if os.path.exists(f"{output_file}.7z.tmp"):
-					os.remove(f"{output_file}.7z.tmp")
-				sys.exit(ExitCode.internal.value)
+			stderr2 = proc_7z2.stderr
+			_, stderr1 = proc_7z1.communicate(timeout=args.timeout)
+			if proc_7z1.returncode != 0:
+				parser.error(f"7z error (exit code:{proc_7z1.returncode}) while unpacking {output_file}.7z: {stderr1.decode()}", ExitCode.internal.value)
+
+			if proc_7z2.returncode != 0:
+				parser.error(f"7z error (exit code:{proc_7z2.returncode}) reference packing failed in job {output_file} file reference.7z: {stderr2.decode()}", ExitCode.internal.value)
 
 			# clean up individual test 7zips
 			if os.path.exists(f"{output_file}.7z"):
 				os.remove(f"{output_file}.7z")
 
 	except Exception as e:
-		print_(f"7z reference packing failed: {e}")
-		sys.exit(ExitCode.internal.value)
+		parser.error(f"7z reference packing failed: {e}", ExitCode.internal.value)
 
 def compare_with_reference(output, reference):
 	test_failures = []
 	total_tests = 0
-	
-	if globals.debug > 1: print_d('reference', json.dumps(reference, indent='\t'))
+
+	if globals.debug > 1:
+		print_d('reference', json.dumps(reference, indent='\t'))
 	print_d('output', json.dumps(output, indent='\t'))
-	
+
 	for decoder in output:
 		for sample in output[decoder]:
 			for test in output[decoder][sample]:
@@ -499,10 +548,10 @@ def compare_with_reference(output, reference):
 						test_failures.append(f"Test '{decoder}:{sample}:{test}' - SHA256 mismatch")
 
 	if test_failures:
-		print_(f"\n{len(test_failures)} test(s) failed:")
-		for failure in test_failures:
-			print_(f"  - {failure}")
-		sys.exit(ExitCode.test_fail.value)
+		parser.error(f"\n{len(test_failures)} test(s) failed:\n"
+			+ "\n".join(f" - {failure}"
+				for failure in test_failures
+			), ExitCode.test_fail.value)
 	else:
 		print_(f"\nAll {total_tests} tests passed verification against reference.json")
 		sys.exit(ExitCode.success.value)
@@ -524,25 +573,26 @@ def main():
 
 	if os.path.basename(sys.executable).endswith(".exe"):
 		epilog += "\n\nWindows Warning!\nPython command line parameter passing works only when directly invoked with python interpreter:\n\
- >python ci.py -whatever\n\
+ >python sidecat.py -whatever\n\
 Using automagic .py Windows file association by executing command:\n\
- >ci.py -whatever\n\
+ >sidecat.py -whatever\n\
 will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\open\\command only passes .py file and nothing else. Stupid defaults can be changed by adding %* at the end of this registry key."
 
+	global parser # we will use our custom parser.error(message,exitcode) thru whole program
 	parser = QuietArgumentParser(prog='sidecat', description="SIgrok DECode Automated Testing (%(prog)s) framework for sigrok, libsigrokdecode and sigrok decoders. Runs battery of test vectors, compares results against reference database, sets non-zero Exit Code on failure.", epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('-v', '--version', action='version', version='%(prog)s v1.0')
-	# needs to be here on top
+	# needs to be here on top so help alt
 	parser.add_argument("-l", "--load_tests", nargs='*', metavar=('test_vectors.json', 'other_vectors.json'), type=str, action=CustomLAction, default="sidecat.json", help="A list of JSON files containing custom test vectors, default %(default)s")
 
 	group = parser.add_mutually_exclusive_group(required=True)
-	group.add_argument('-t', '--test', nargs='*', metavar='decoder1:sample1:test1[:test2...] [decoder2:sample2:testx...] [decoder1:sample1:test3...]', type=str, action=CustomTAction, help="A list of tests to run. Format is either '-t all' or '-t decoder1:sample1:test1:test2 decoder2:sample2:testx decoder1:sample1:test3' etc.\nUse '-t' to get a list of available decoder:sample:test combinations.\nUse '-t decoder' for a list of available samples for that decoder.\nUse '-t decoder:sample' to get detailed descriptions of all available tests for that particular combination.")
-	group.add_argument("-r", "--regen", action='store_true', help="Generate reference ground truth (collection of 7zipped Decoder outputs) using predefined test vector table.")
+	group.add_argument('-t', '--test', nargs='*', metavar='decoder1:sample1:test1[:test2...] [decoder2:sample2:testx...] [decoder1:sample1:test3...]', type=str, action=CustomTAction, help="A list of tests to run. Format is either '-t all' or '-t decoder1:sample1:test1:test2 decoder2:sample2:testx decoder1:sample1:test3' etc.\nUse '-t' to get a list of available decoder:sample:test combinations.\nUse '-t decoder' for a list of available samples for that decoder.\nUse '-t decoder:sample' to get detailed descriptions of all available tests for that combination.")
+	group.add_argument("-r", "--reference", action='store_true', help="Generate reference ground truth (collection of 7zipped Decoder outputs or uncompressed files) using predefined test vector table.")
 
 	parser.add_argument("-p", "--progress", choices=['none', '5', '10', '20', '25', '33'], default='10', help="Display progress updates in %% steps. --quiet flag disables it. Default %(default)s")
 	# FIXME: timeouts are weird in concurrent python, cant make it work
 	parser.add_argument("-to", "--timeout", type=int, default=600, help="Default %(default)s seconds. FIXME: doesnt work at the moment.")
 	parser.add_argument("-s", "--sigrok_path", type=os.path.abspath, default="C:/Program Files/sigrok/sigrok-cli", help="Location of sigrok-cli executable, defaults to %(default)s")
-	parser.add_argument("-z", "--sevenzip_path", type=os.path.abspath, default="C:/Program Files/7-Zip", help="Location of 7zip 7z executable, defaults to %(default)s")
+	parser.add_argument("-z", "--sevenzip_path", type=str, default="C:/Program Files/7-Zip", help="Location of 7zip 7z executable, defaults to %(default)s. Use 'none' to force uncompressed files.")
 	parser.add_argument("-c", "--concurrency", type=int, default=4, help="Number of concurrent jobs. Maximum is number of test cases, default %(default)s")
 	parser.add_argument("-d", "--debug", action='store_true', help="Debug prints, use '-d -d' to debug even harder! Disables --progress, ignores --quiet.")
 	parser.add_argument("--jsonschema", action='store_true', help="Validate JSON files using optional jsonschema library.")
@@ -550,26 +600,29 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 
 	# Updated size calculation for new structure
 	globals.size = sum([
-		test_vectors[decoder][sample][test].get('size', 0) 
-		for decoder in test_vectors 
-		for sample in test_vectors[decoder] 
-		if sample != 'path' 
+		test_vectors[decoder][sample][test].get('size', 0)
+		for decoder in test_vectors
+		for sample in test_vectors[decoder]
 		for test in test_vectors[decoder][sample]
+		if test != 'path'
 	])
 
-	if globals.debug: args.progress = 'none'
+	if globals.debug:
+		args.progress = 'none'
 
 	if args.test:
 		reference_data = load_json('reference.json')
 		if not len(reference_data):
 			parser.error(f"reference.json doesnt contain reference database.", ExitCode.internal.value)
 
-	if args.regen:
-		# Updated test_list generation for new structure
-		test_list = [(decoder, sample, test) for decoder in test_vectors 
-					for sample in test_vectors[decoder] 
-					if sample != 'path' 
-					for test in test_vectors[decoder][sample]]
+	if args.reference:
+		test_list = [
+			(decoder, sample, test)
+			for decoder in test_vectors
+			for sample in test_vectors[decoder]
+			for test in test_vectors[decoder][sample]
+			if test != 'path'
+		]
 		print_d(f"Regenerating {len(test_list)} tests for {len(test_vectors)} decoders")
 
 	if args.progress != 'none' and not args.quiet:
@@ -585,19 +638,27 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		case 2:
 			parser.error(f"The file '{args.sigrok_path}' does not exist.", ExitCode.internal.value)
 
-	args.sevenzip_path, sevenzip_path_result = check_path('7z' + ('.exe' if os.path.basename(sys.executable).endswith(".exe") else ''), args.sevenzip_path, os.X_OK)
-	match sevenzip_path_result:
-		case 0:
-			print_d(f"7zip located at		{args.sevenzip_path}")
-		case 1:
-			parser.error(f"The file '{args.sevenzip_path}' exists but is not accessible.", ExitCode.internal.value)
-		case 2:
-			parser.error(f"The file '{args.sevenzip_path}' does not exist.", ExitCode.internal.value)
+	if args.sevenzip_path != 'none':
+		args.sevenzip_path, sevenzip_path_result = check_path('7z' + ('.exe' if os.path.basename(sys.executable).endswith(".exe") else ''), args.sevenzip_path, os.X_OK)
+		match sevenzip_path_result:
+			case 0:
+				print_d(f"7zip located at		{args.sevenzip_path}")
+			case 1:
+				parser.error(f"The file '{args.sevenzip_path}' exists but is not accessible.", ExitCode.internal.value)
+			case 2:
+				if args.sevenzip_path == parser.get_default('sevenzip_path'):
+					print_(f"Warning: Default '{args.sevenzip_path}' file does not exist, switching to uncompressed output.")
+					args.sevenzip_path = 'none'
+				else:
+					parser.error(f"The file '{args.sevenzip_path}' does not exist.", ExitCode.internal.value)
 
 	print_(f"Starting {min(args.concurrency, len(test_list))} concurrent sigrok_cli instances. {len(test_list)} test cases to process.")
 
 	with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as executor:
-		futures = [executor.submit(sigrok_cli, decoder, sample, test) for decoder, sample, test in test_list]
+		futures = [
+			executor.submit(sigrok_cli, decoder, sample, test)
+			for decoder, sample, test in test_list
+		]
 		try:
 			for future in concurrent.futures.as_completed(futures):
 				result = future.result()
@@ -605,39 +666,20 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 					output_files = dict_merge_preserve_source_order(output_files, result)
 
 		except KeyboardInterrupt:
-			print_("\nCtrl-C pressed! Performing cleanup...")
 			executor.shutdown()
-			sys.exit(ExitCode.user_ctrl_c.value)
+			parser.error("\nCtrl-C pressed! Performing cleanup...", ExitCode.user_ctrl_c.value)
 		except Exception as e:
-			print_(f"Worker raised an error: {e}")
 			executor.shutdown()
-			sys.exit(ExitCode.internal.value)
+			parser.error(f"Worker raised an error: {e}", ExitCode.internal.value)
 
-	if args.regen:
+	if args.reference:
 		print_d('test_vectors',json.dumps(test_vectors, indent='\t'))
 		print_d('output_files',json.dumps(output_files, indent='\t'))
 
 		output_files = dict_merge_preserve_source_order(test_vectors, output_files)
-		#merged_output = {}
-		#for decoder in test_vectors:
-		#	merged_output[decoder] = {}
-		#	for sample in test_vectors[decoder]:
-		#		if sample == 'path':
-		#			merged_output[decoder][sample] = test_vectors[decoder][sample]
-		#			continue
-		#		merged_output[decoder][sample] = {}
-		#		for test in test_vectors[decoder][sample]:
-		#			if test in output_files.get(decoder, {}).get(sample, {}):
-		#				merged_output[decoder][sample][test] = output_files[decoder][sample][test]
-		#			else:
-		#				# Copy from test_vectors if no generated data
-		#				merged_output[decoder][sample][test] = test_vectors[decoder][sample][test]
-		#
-		#output_files = merged_output
 		save_json('reference.json', output_files)
-		save_json('regen', output_files)
 		reference_pack(test_list)
-		print_("All sigrok_cli instances completed. reference.7z and reference.json metadata generated successfully.")
+		print_(f"All sigrok_cli instances completed. reference.json metadata and {'reference.7z' if args.sevenzip_path != 'none' else f'{globals.counter / 1000**2:.2f}MB of uncompressed files in ./reference/'} generated successfully.")
 		sys.exit(ExitCode.success.value)
 
 	if args.test:
