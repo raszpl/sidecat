@@ -18,7 +18,7 @@ Sidecat (SIgrok DECode Automated Testing) is a Python-based framework designed f
 - Python 3.6+
 - [sigrok-cli](https://sigrok.org/wiki/Sigrok-cli)
 - Optional: [7-Zip](https://www.7-zip.org/) for compressing output
-- Optional: `jsonschema` for test vector validation (enabled with `--jsonschema`)
+- Optional: `jsonschema` for test vector validation.
 
 ## Usage
 Run the script with Python, specifying test vectors and options as needed. Ensure `sigrok-cli` and optional `7z` are installed and accessible.
@@ -26,14 +26,13 @@ Run the script with Python, specifying test vectors and options as needed. Ensur
 ### Command-Line Arguments
 - `-l, --load_tests <test_vectors.json> [more_vectors.json ...]`: Specify JSON files containing test vectors (default: `sidecat.json`).
 - `-t, --test <decoder1:sample1:test1[:test2...] [decoder2:sample2:testx...]>`: Run specific tests in the format `decoder:sample:test`. Use `-t all` to run all tests, `-t` to list available tests, `-t decoder` to list samples for a decoder, or `-t decoder:sample` to list tests for a sample.
-- `-r, --regen`: Regenerate reference data (creates `reference.json` and either `reference.7z` or uncompressed files in `./reference/`).
+- `-r, --reference`: Regenerate reference data (creates `reference.json` and either `reference.7z` or uncompressed files in `./reference/`).
 - `-p, --progress <none|5|10|20|25|33>`: Display progress updates in percentage steps (default: `10`). Disabled by `--quiet`.
 - `-s, --sigrok_path <path>`: Path to `sigrok-cli` executable (default: `C:/Program Files/sigrok/sigrok-cli` on Windows).
 - `-z, --sevenzip_path <path>`: Path to optional `7z` executable (default: `C:/Program Files/7-Zip` on Windows). `none` to disable and save uncompressed tests to `./` or reference to `./reference/`.
 - `-c, --concurrency <number>`: Number of concurrent jobs (default: `4`).
 - `-q, --quiet`: Suppress console output, only return exit code.
 - `-d, --debug`: Enable debug output. Use `-d -d` for more verbosity. Disables `--progress` and ignores `--quiet`.
-- `--jsonschema`: Enable JSON schema validation for test vectors (requires `jsonschema` library).
 - `-to, --timeout <seconds>`: Set timeout for test execution (default: `600`). Note: Currently non-functional.
 - `-v, --version`: Show version.
 
@@ -123,7 +122,7 @@ Test vectors are defined in JSON files (e.g., `sidecat.json`) with the following
 ## Notes
 - **Windows Users**: When running via file association (e.g., `sidecat.py`), command-line arguments may not pass correctly. Use `python sidecat.py` instead, or modify the Windows registry to include `%*` in `HKEY_CLASSES_ROOT\Applications\py.exe\shell\open\command`.
 - **Timeout Limits**: The `--timeout` option is currently non-functional due to implementation challenges aka I dont know how to make it work :|
-- **JSON Schema Validation**: Enable with `--jsonschema` to validate test vector JSON files. Requires the `jsonschema` library.
+- **JSON Schema Validation**: Make sure python third party `jsonschema` library is installed if you want test vector JSON validation.
 - **File Paths**: Ensure `sigrok-cli` is accessible. Use absolute path for `--sigrok_path` if not in PATH.
 - **Sample location**: Sample files (e.g., `sample.sr`) must be specified by the `path` parameter inside test vector JSON or in PATH.
 - **Output location**: Test outputs are saved to `./` (as `.7z` or raw files), reference outputs are saved as `reference.7z` or raw files to `./reference/`).
