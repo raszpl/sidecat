@@ -10,7 +10,6 @@ class globals:
 	size = 0
 	quiet = False
 	debug = False
-	jsonschema = False
 
 class ExitCode(Enum):
 	success		= 0	# All tests passed successfully
@@ -116,7 +115,7 @@ def load_json(json_file):
 	except Exception as e:
 		parser.error(f"JSON: An unexpected error occurred loading {json_file}: {e}", ExitCode.internal.value)
 
-	if globals.jsonschema:
+	try:
 		from jsonschema import validate, ValidationError
 		try:
 			validate(instance=data, schema=schema)
@@ -124,6 +123,8 @@ def load_json(json_file):
 			parser.error(f"JSON file '{json_file}' validation Error: {e.message}\n"
 				+ f"Path to error: {list(e.path)}\n"
 				+ f"Bad instance: {e.instance}", ExitCode.internal.value)
+	except ImportError:
+		print_("Optional 'jsonschema' module could not be imported, running with no JSON validation.")
 	return data
 
 def check_path(file, file_path, mode=os.R_OK):
@@ -163,7 +164,6 @@ class QuietArgumentParser(argparse.ArgumentParser):
 		# manually catch quiet and debug, need those early. Truthiness is all we need.
 		globals.quiet = args.count('-q') + args.count('--quiet')
 		globals.debug = args.count('-d') + args.count('--debug')
-		globals.jsonschema = '--jsonschema' in args
 
 		# Find load_tests action and run it manually, this is the only way to force
 		# CustomLAction process its 'default'. We do it so help screen can display
@@ -595,7 +595,6 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 	parser.add_argument("-z", "--sevenzip_path", type=str, default="C:/Program Files/7-Zip", help="Location of 7zip 7z executable, defaults to %(default)s. Use 'none' to force uncompressed files.")
 	parser.add_argument("-c", "--concurrency", type=int, default=4, help="Number of concurrent jobs. Maximum is number of test cases, default %(default)s")
 	parser.add_argument("-d", "--debug", action='store_true', help="Debug prints, use '-d -d' to debug even harder! Disables --progress, ignores --quiet.")
-	parser.add_argument("--jsonschema", action='store_true', help="Validate JSON files using optional jsonschema library.")
 	args = parser.parse_args()
 
 	# Updated size calculation for new structure
