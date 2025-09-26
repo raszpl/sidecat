@@ -5,7 +5,7 @@ Sidecat (SIgrok DECode Automated Testing) is a Python-based framework designed f
 
 ## Features
 - **Test Mode**: Validates test outputs against a reference database.
-- **Reference Mode**: Generates reference ground truth data (7zipped or uncompressed decoder outputs and metadata).
+- **Reference Mode**: Generates reference ground truth data (7zipped or uncompressed decoder outputs) and updates metadata (size, crc, blake2b and sha256) in test vectors JSON.
 - **Test Vector Management**: Loads and validates test vectors from JSON files.
 - **Concurrent Execution**: Runs multiple tests concurrently using Python's `concurrent.futures`.
 - **Customizable Options**: Supports quiet mode, debug output, progress tracking, and configurable paths for `sigrok-cli` and `7z`.
@@ -49,7 +49,7 @@ Run the script with Python, specifying test vectors and options as needed. Ensur
   ```bash
   python sidecat.py -t decoder1:sample1:test1 decoder2:sample2:testx
   ```
-- Regenerate reference data:
+- Generate reference data. Loads test vectors from default sidecar.json and updates every test case with size, crc, blake2b and sha256:
   ```bash
   python sidecat.py -r
   ```
@@ -57,9 +57,9 @@ Run the script with Python, specifying test vectors and options as needed. Ensur
   ```bash
   python sidecat.py -r -z none
   ```
-- Run all tests with custom test vectors:
+- Run all tests from custom_tests file:
   ```bash
-  python sidecat.py -l custom_tests.json more_tests.json -t all
+  python sidecat.py -l custom_tests.json -t all
   ```
 - Run all tests with no output, only exit codes:
   ```bash
@@ -75,7 +75,7 @@ Run the script with Python, specifying test vectors and options as needed. Ensur
   ```
   Example output:
   ```
-  error: Loaded ['sidecat.json'] test vectors, available decoder:sample:test combinations:
+  error: Loaded sidecat.json containing following decoder:sample:test combinations:
    mfm:fdd_fm:all
    mfm:fdd_mfm:all
    mfm:hdd_mfm:all
@@ -91,20 +91,20 @@ Run the script with Python, specifying test vectors and options as needed. Ensur
   ```
 
 ### Test Vector JSON Format
-Test vectors are defined in JSON files (e.g., `sidecat.json`) with the following structure:
+Test vectors are defined in JSON files (e.g., `sidecat.json`). `--reference` will automatically generate missing size, crc, blake2b and sha256 fields.
 ```json
 {
   "decoder_name": {
     "sample_name": {
       "path": "optional/sample/specific/path",
       "test_name": {
-        "options": "decoder_options",
-        "annotate": "annotation_flags",
+        "options": "decoder_options (optional)",
+        "annotate": "annotation_flags (optional)",
         "desc": "Test description (optional)",
-        "size": 12345,
-        "crc": "0x1a2b3c4d",
-        "blake2b": "128-character-hex-string",
-        "sha256": "64-character-hex-string"
+        "size": 12345, (automatically generated)
+        "crc": "0x1a2b3c4d", (automatically generated)
+        "blake2b": "128-character-hex-string", (automatically generated)
+        "sha256": "64-character-hex-string" (automatically generated)
       },
     },
   },
@@ -121,11 +121,11 @@ Test vectors are defined in JSON files (e.g., `sidecat.json`) with the following
 
 ## Notes
 - **Windows Users**: When running via file association (e.g., `sidecat.py`), command-line arguments may not pass correctly. Use `python sidecat.py` instead, or modify the Windows registry to include `%*` in `HKEY_CLASSES_ROOT\Applications\py.exe\shell\open\command`.
-- **Timeout Limits**: The `--timeout` option is currently non-functional due to implementation challenges aka I dont know how to make it work :|
+- **Timeout Limits**: The `--timeout` option is currently non-functional due to implementation challenges.
 - **JSON Schema Validation**: Make sure python third party `jsonschema` library is installed if you want test vector JSON validation.
 - **File Paths**: Ensure `sigrok-cli` is accessible. Use absolute path for `--sigrok_path` if not in PATH.
 - **Sample location**: Sample files (e.g., `sample.sr`) must be specified by the `path` parameter inside test vector JSON or in PATH.
-- **Output location**: Test outputs are saved to `./` (as `.7z` or raw files), reference outputs are saved as `reference.7z` or raw files to `./reference/`).
+- **Output location**: Test outputs are saved to `./` (as `.7z` or raw files), reference outputs are saved as `reference.7z` or raw files to `./reference/`). Reference metadata (size, crc, blake2b and sha256) gets written back to `--load_tests` configured JSON.
 
 ## Contributing
 Contributions are welcome! Please submit issues or pull requests to the [GitHub repository](https://github.com/raszpl/sidecat).
