@@ -210,47 +210,48 @@ class QuietArgumentParser(argparse.ArgumentParser):
 
 # ----------------------------------------------------------------------------
 class CustomLAction(argparse.Action):
-	def __call__(self, parser, namespace, json_files, option_string=None):
+	def __call__(self, parser, namespace, json_file, option_string=None):
 		global loaded_tests, test_vectors
 		test_vectors = {}
 
-		if not json_files:
-			parser.error(f"'{option_string}' requires at least one argument - {self.help % {'default': self.default}}")
-		else:
-			# detect if we are being run from QuietArgumentParser aka
-			# running with no '-l' and trying to load self.default
-			if not namespace and json_files == self.default:
-				print_d(f"Trying to load default {self.default}, checking if it exists.")
-				_, file_path_result = check_path(self.default, '')
-				if file_path_result:
-					print_d(f"{self.default} doesnt exists, no tests will be available.")
-					return
-				# self.default is a string, we need list
-				json_files = [json_files]
+		# detect if we are being run from QuietArgumentParser aka
+		# running with no '-l' and trying to load self.default
+		if not namespace and json_file == self.default:
+			print_d(f"Checking if default {self.default} exists.")
+			_, file_path_result = check_path(self.default, '')
+			if file_path_result:
+				parser.error(f"{self.default} doesnt exists, no tests will be available.", ExitCode.internal.value)
 
-			for json_file in json_files:
-				tests = load_json(json_file)
-				print_d(f"Loaded {json_file} tests.")
-				if globals.debug > 1:
-					print_d(json.dumps(tests, indent='\t'))
-				loaded_tests.append(json_file)
+		print_d(f"Trying to load {json_file}.")
+		tests = load_json(json_file)
+		print_d(f"Loaded {json_file} tests. {len(tests)}")
+		test_list = [
+			(decoder, sample, test)
+			for decoder in tests
+			for sample in tests[decoder]
+			for test in tests[decoder][sample]
+			if test != 'path'
+		]
+		print_d(f"Available {len(test_list)} tests for {len(tests)} decoders")
+		
+		if globals.debug > 1:
+			print_d(json.dumps(tests, indent='\t'))
+		loaded_tests.append(json_file)
 
-				test_everything = 1
-				if test_everything:
-					for decoder in tests:
-						for sample in tests[decoder]:
-							if sample == 'path':
-								continue
-							file_path, file_path_result = check_path(sample + '.sr', tests[decoder][sample].get('path', ''))
-							match file_path_result:
-								case 0:
-									print_d(f"The file '{file_path}' exists and is accessible.")
-								case 1:
-									parser.error(f"The file '{file_path}' exists but is not accessible.")
-								case 2:
-									parser.error(f"The file '{file_path}' does not exist.")
+		for decoder in tests:
+			for sample in tests[decoder]:
+				if sample == 'path':
+					continue
+				file_path, file_path_result = check_path(sample + '.sr', tests[decoder][sample].get('path', ''))
+				match file_path_result:
+					case 0:
+						print_d(f"The sample '{file_path}' exists and is accessible.")
+					case 1:
+						parser.error(f"The sample '{file_path}' exists but is not accessible.", ExitCode.internal.value)
+					case 2:
+						parser.error(f"The sample '{file_path}' does not exist.", ExitCode.internal.value)
 
-				test_vectors.update(tests)
+		test_vectors.update(tests)
 
 		if namespace:
 			setattr(namespace, self.dest, test_vectors)
@@ -303,8 +304,8 @@ class CustomTAction(argparse.Action):
 					decoder, sample, *tests = parts
 
 				# Validate decoder name
-				available_decoders = '\n '.join(test_vectors.keys())
 				if decoder not in test_vectors:
+					available_decoders = '\n '.join(test_vectors.keys())
 					parser.error(f"Invalid decoder name '{decoder}' in '{option_string} {value}'. Available decoders:\n {available_decoders}")
 
 				# Validate sample name
@@ -611,7 +612,7 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 	parser = QuietArgumentParser(prog='sidecat', description="SIgrok DECode Automated Testing (%(prog)s) framework for sigrok, libsigrokdecode and sigrok decoders. Runs battery of test vectors, compares results against reference database, sets non-zero Exit Code on failure.", epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('-v', '--version', action='version', version='%(prog)s v1.0')
 	# needs to be here on top so help alt
-	parser.add_argument("-l", "--load_tests", nargs='*', metavar=('test_vectors.json', 'other_vectors.json'), type=str, action=CustomLAction, default="sidecat.json", help="A list of JSON files containing custom test vectors, default %(default)s")
+	parser.add_argument("-l", "--load_tests", metavar='test_vectors.json', type=os.path.abspath, action=CustomLAction, default="sidecat.json", help="JSON file containing custom test vectors, default %(default)s")
 
 	group = parser.add_mutually_exclusive_group(required=True)
 	group.add_argument('-t', '--test', nargs='*', metavar='decoder1:sample1:test1[:test2...] [decoder2:sample2:testx...] [decoder1:sample1:test3...]', type=str, action=CustomTAction, help="A list of tests to run. Format is either '-t all' or '-t decoder1:sample1:test1:test2 decoder2:sample2:testx decoder1:sample1:test3' etc.\nUse '-t' to get a list of available decoder:sample:test combinations.\nUse '-t decoder' for a list of available samples for that decoder.\nUse '-t decoder:sample' to get detailed descriptions of all available tests for that combination.")
