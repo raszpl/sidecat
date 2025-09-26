@@ -211,8 +211,7 @@ class QuietArgumentParser(argparse.ArgumentParser):
 # ----------------------------------------------------------------------------
 class CustomLAction(argparse.Action):
 	def __call__(self, parser, namespace, json_file, option_string=None):
-		global loaded_tests, test_vectors
-		test_vectors = {}
+		global test_vectors
 
 		# detect if we are being run from QuietArgumentParser aka
 		# running with no '-l' and trying to load self.default
@@ -222,39 +221,41 @@ class CustomLAction(argparse.Action):
 			if file_path_result:
 				parser.error(f"{self.default} doesnt exists, no tests will be available.", ExitCode.internal.value)
 
-		print_d(f"Trying to load {json_file}.")
-		tests = load_json(json_file)
-		print_d(f"Loaded {json_file} tests. {len(tests)}")
+		print_d(f"Trying to load {json_file}")
+		test_vectors = load_json(json_file)
 		test_list = [
 			(decoder, sample, test)
-			for decoder in tests
-			for sample in tests[decoder]
-			for test in tests[decoder][sample]
+			for decoder in test_vectors
+			for sample in test_vectors[decoder]
+			for test in test_vectors[decoder][sample]
 			if test != 'path'
 		]
-		print_d(f"Available {len(test_list)} tests for {len(tests)} decoders")
-		
+		print_d(f"Loaded {json_file} containing {len(test_list)} tests for {len(test_vectors)} decoder(s). Available decoder:sample:test combinations:\n "
+			+ '\n '.join([
+				f"{decoder}:{sample}:{':'.join(key for key in tests.keys() if key != 'path')}"
+				for decoder in test_vectors
+				for sample in test_vectors[decoder]
+				for tests in [test_vectors[decoder][sample]]
+			])
+		)
 		if globals.debug > 1:
-			print_d(json.dumps(tests, indent='\t'))
-		loaded_tests.append(json_file)
+			print_d(json.dumps(test_vectors, indent='\t'))
 
-		for decoder in tests:
-			for sample in tests[decoder]:
+		for decoder in test_vectors:
+			for sample in test_vectors[decoder]:
 				if sample == 'path':
 					continue
-				file_path, file_path_result = check_path(sample + '.sr', tests[decoder][sample].get('path', ''))
+				file_path, file_path_result = check_path(sample + '.sr', test_vectors[decoder][sample].get('path', ''))
 				match file_path_result:
 					case 0:
-						print_d(f"The sample '{file_path}' exists and is accessible.")
+						print_d(f"Sample '{file_path}' exists and is accessible.")
 					case 1:
-						parser.error(f"The sample '{file_path}' exists but is not accessible.", ExitCode.internal.value)
+						parser.error(f"Sample '{file_path}' exists but is not accessible.", ExitCode.internal.value)
 					case 2:
-						parser.error(f"The sample '{file_path}' does not exist.", ExitCode.internal.value)
-
-		test_vectors.update(tests)
+						parser.error(f"Sample '{file_path}' does not exist.", ExitCode.internal.value)
 
 		if namespace:
-			setattr(namespace, self.dest, test_vectors)
+			setattr(namespace, self.dest, json_file)
 
 class CustomTAction(argparse.Action):
 	def __init__(self, option_strings, dest, nargs=None, **kwargs):
@@ -262,7 +263,7 @@ class CustomTAction(argparse.Action):
 		super().__init__(option_strings, dest, nargs=nargs, **kwargs)
 
 	def __call__(self, parser, namespace, values, option_string=None):
-		global test_vectors, test_list, loaded_tests
+		global test_vectors, test_list
 		test_list = []
 
 		if len(test_vectors) == 0:
@@ -279,7 +280,8 @@ class CustomTAction(argparse.Action):
 		# empty -t
 		elif not values:
 			parser.error(
-				f"Loaded {loaded_tests} test vectors, available decoder:sample:test combinations:\n "
+				#args.load_tests
+				f"Loaded {getattr(namespace, 'load_tests')} containint following decoder:sample:test combinations:\n "
 				+ '\n '.join([
 					f"{decoder}:{sample}:{':'.join(key for key in tests.keys() if key != 'path')}"
 					for decoder in test_vectors
@@ -444,12 +446,10 @@ def sigrok_cli(decoder, sample, test):
 
 		proc_sig.wait()
 
-		_, stderr1 = proc_sig.communicate()
 		if proc_sig.returncode != 0:
-			parser.error(f"sigrok-cli error (exit code:{proc_sig.returncode}) for {decoder}:{sample}:{test}: {stderr1.decode()}", ExitCode.sigrok_fail.value)
+			parser.error(f"sigrok-cli error (exit code:{proc_sig.returncode}) for {decoder}:{sample}:{test}: {proc_sig.stderr.read().decode()}", ExitCode.sigrok_fail.value)
 
 		if args.sevenzip_path != 'none':
-			proc_7z.wait()
 			# FIXME: this is wrong, timeout is set too late
 			stdout2, stderr2 = proc_7z.communicate(timeout=args.timeout)
 			if proc_7z.returncode != 0:
@@ -587,8 +587,7 @@ def compare_with_reference(output, reference):
 		sys.exit(ExitCode.success.value)
 
 def main():
-	global args, loaded_tests, test_vectors, test_list
-	loaded_tests = []
+	global args, test_vectors, test_list
 	test_vectors = {}
 	output_files = {}
 	test_list = []
@@ -711,9 +710,7 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		print_d('output_files', json.dumps(output_files, indent='\t'))
 
 		output_files = dict_merge_preserve_source_order(test_vectors, output_files)
-		if len(loaded_tests) != 1:
-			parser.error("Updating multiple loaded test files not supported. Please load a single file.", ExitCode.internal.value)
-		file_to_update = loaded_tests[0]
+		file_to_update = args.load_tests
 		temp_file = file_to_update + '.tmp'
 		save_json(temp_file, output_files)
 		updated_data = load_json(temp_file, reference_required=True)
