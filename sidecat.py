@@ -90,33 +90,7 @@ schema = {
 schema_reference_pattern = schema["patternProperties"]["^[a-zA-Z0-9_\\-]+$"]["patternProperties"]["^[a-zA-Z0-9_\\-]+$"]["patternProperties"]["^(?!path$)[a-zA-Z0-9_\\-]+$"]
 schema_reference_required = {"required": ["size", "crc", "blake2b", "sha256"]}
 
-def dict_merge_preserve_source_order(source, add_this):
-	result = {}
-	for key in source:
-		if (
-			key in add_this
-			and isinstance(source[key], dict)
-			and isinstance(add_this[key], dict)
-		):
-			result[key] = dict_merge_preserve_source_order(source[key], add_this[key])
-		else:
-			result[key] = add_this.get(key, source[key])
-	for key in add_this:
-		if key not in source:
-			result[key] = add_this[key]
-	return result
-
-def load_json(json_file, reference_required=False):
-	try:
-		with open(json_file, 'r') as f:
-			data = json.load(f)
-	except FileNotFoundError:
-		parser.error(f"Error: JSON file {json_file} not found", ExitCode.internal.value)
-	except json.JSONDecodeError as e:
-		parser.error(f"Error: Invalid JSON format in {json_file}: {e}", ExitCode.internal.value)
-	except Exception as e:
-		parser.error(f"JSON: An unexpected error occurred loading {json_file}: {e}", ExitCode.internal.value)
-
+def json_validate(json_data, json_name, reference_required=False):
 	try:
 		from jsonschema import validate, ValidationError
 		global schema
@@ -128,14 +102,38 @@ def load_json(json_file, reference_required=False):
 				del schema_reference_pattern["required"]
 
 		try:
-			validate(instance=data, schema=schema)
+			validate(instance=json_data, schema=schema)
 		except ValidationError as e:
-			parser.error(f"JSON file '{json_file}' validation Error: {e.message}\n"
+			parser.error(f"JSON file '{json_name}' validation Error: {e.message}\n"
 				+ f"Path to error: {list(e.path)}\n"
 				+ f"Bad instance: {e.instance}", ExitCode.internal.value)
+
 	except ImportError:
 		print_("Optional 'jsonschema' module could not be imported, skipping JSON validation.")
+
+def json_load(json_file, reference_required=False):
+	try:
+		with open(json_file, 'r') as f:
+			data = json.load(f)
+	except FileNotFoundError:
+		parser.error(f"Error: JSON file {json_file} not found", ExitCode.internal.value)
+	except json.JSONDecodeError as e:
+		parser.error(f"Error: Invalid JSON format in {json_file}: {e}", ExitCode.internal.value)
+	except Exception as e:
+		parser.error(f"JSON: An unexpected error occurred loading {json_file}: {e}", ExitCode.internal.value)
+
+	json_validate(data, json_file, reference_required)
+
 	return data
+
+def json_save(json_file, data):
+	try:
+		with open(json_file, "w") as f:
+			json.dump(data, f, indent='\t')
+	except IOError as e:
+		parser.error(f"Error: Could not write to file {json_file}. Check permissions or path. ({e})", ExitCode.internal.value)
+	except Exception as e:
+		parser.error(f"JSON: An unexpected error occurred: {e}", ExitCode.internal.value)
 
 def check_path(file, file_path, mode=os.R_OK):
 	test_path = os.path.join(file_path, file)
@@ -222,7 +220,7 @@ class CustomLAction(argparse.Action):
 				parser.error(f"{self.default} doesnt exists, no tests will be available.", ExitCode.internal.value)
 
 		print_d(f"Trying to load {json_file}")
-		test_vectors = load_json(json_file)
+		test_vectors = json_load(json_file)
 		tests_list_all = [
 			(decoder, sample, test)
 			for decoder in test_vectors
@@ -239,7 +237,7 @@ class CustomLAction(argparse.Action):
 			])
 		)
 		if globals.debug > 1:
-			print_d(json.dumps(test_vectors, indent='\t'))
+			print_d('test_vectors', json.dumps(test_vectors, indent='\t'))
 
 		for decoder in test_vectors:
 			for sample in test_vectors[decoder]:
@@ -348,15 +346,6 @@ class CustomTAction(argparse.Action):
 
 		setattr(namespace, self.dest, values)
 # ----------------------------------------------------------------------------
-def save_json(json_file, data):
-	try:
-		with open(json_file, "w") as f:
-			json.dump(data, f, indent='\t')
-	except IOError as e:
-		parser.error(f"Error: Could not write to file {json_file}. Check permissions or path. ({e})", ExitCode.internal.value)
-	except Exception as e:
-		parser.error(f"JSON: An unexpected error occurred: {e}", ExitCode.internal.value)
-
 def sigrok_cli(decoder, sample, test):
 	try:
 		test_vector = test_vectors[decoder][sample][test]
@@ -579,6 +568,22 @@ def compare_with_reference(output, reference):
 		print_(f"\nAll {total_tests} tests passed verification against the loaded reference data")
 		sys.exit(ExitCode.success.value)
 
+def dict_merge_preserve_source_order(source, add_this):
+	result = {}
+	for key in source:
+		if (
+			key in add_this
+			and isinstance(source[key], dict)
+			and isinstance(add_this[key], dict)
+		):
+			result[key] = dict_merge_preserve_source_order(source[key], add_this[key])
+		else:
+			result[key] = add_this.get(key, source[key])
+	for key in add_this:
+		if key not in source:
+			result[key] = add_this[key]
+	return result
+
 def main():
 	global parser # we will use custom parser.error(message, exitcode) thru whole program
 	global args, test_vectors, tests_list_all, tests_selected
@@ -632,6 +637,19 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		args.progress = 'none'
 
 	if args.test:
+		print_d("Building test_vectors_selected consisting of test_vectors we want to run.")
+		test_vectors_selected = {
+			decoder: {
+				sample: {
+					test: test_vectors[decoder][sample][test]
+					for test in set(t[2] for t in tests_selected if t[0] == decoder and t[1] == sample)
+				}
+				for sample in set(t[1] for t in tests_selected if t[0] == decoder)
+			}
+			for decoder in set(t[0] for t in tests_selected)
+		}
+		print_d("Validating if all test_vectors_selected have references.")
+		json_validate(test_vectors_selected, 'test_vectors_selected', reference_required=True)
 		if not len(test_vectors):
 			parser.error(f"Loaded test vectors do not contain reference data.", ExitCode.internal.value)
 
@@ -695,14 +713,15 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		print_("")
 
 	if args.reference:
-		print_d('test_vectors', json.dumps(test_vectors, indent='\t'))
-		print_d('output_files', json.dumps(output_files, indent='\t'))
+		if globals.debug > 1:
+			print_d('test_vectors', json.dumps(test_vectors, indent='\t'))
+			print_d('output_files', json.dumps(output_files, indent='\t'))
 
 		output_files = dict_merge_preserve_source_order(test_vectors, output_files)
 		file_to_update = args.load_tests
 		temp_file = file_to_update + '.tmp'
-		save_json(temp_file, output_files)
-		updated_data = load_json(temp_file, reference_required=True)
+		json_save(temp_file, output_files)
+		json_load(temp_file, reference_required=True)
 
 		if not os.access(file_to_update, os.W_OK):
 			parser.error(f"Cannot update '{file_to_update}': No write permission.", ExitCode.internal.value)
@@ -721,7 +740,7 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		sys.exit(ExitCode.success.value)
 
 	if args.test:
-		save_json('test_report.json', output_files)
+		json_save('test_report.json', output_files)
 		compare_with_reference(output_files, test_vectors)
 
 if __name__ == "__main__":
