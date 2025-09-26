@@ -87,6 +87,8 @@ schema = {
 	},
 	"additionalProperties": False
 }
+schema_reference_pattern = schema["patternProperties"]["^[a-zA-Z0-9_\\-]+$"]["patternProperties"]["^[a-zA-Z0-9_\\-]+$"]["patternProperties"]["^(?!path$)[a-zA-Z0-9_\\-]+$"]
+schema_reference_required = {"required": ["size", "crc", "blake2b", "sha256"]}
 
 def dict_merge_preserve_source_order(source, add_this):
 	result = {}
@@ -104,7 +106,7 @@ def dict_merge_preserve_source_order(source, add_this):
 			result[key] = add_this[key]
 	return result
 
-def load_json(json_file):
+def load_json(json_file, reference_required=False):
 	try:
 		with open(json_file, 'r') as f:
 			data = json.load(f)
@@ -117,6 +119,14 @@ def load_json(json_file):
 
 	try:
 		from jsonschema import validate, ValidationError
+		global schema
+
+		if reference_required:
+			schema_reference_pattern.update(schema_reference_required)
+		else:
+			if "required" in schema_reference_pattern:
+				del schema_reference_pattern["required"]
+
 		try:
 			validate(instance=data, schema=schema)
 		except ValidationError as e:
@@ -124,7 +134,7 @@ def load_json(json_file):
 				+ f"Path to error: {list(e.path)}\n"
 				+ f"Bad instance: {e.instance}", ExitCode.internal.value)
 	except ImportError:
-		print_("Optional 'jsonschema' module could not be imported, running with no JSON validation.")
+		print_("Optional 'jsonschema' module could not be imported, skipping JSON validation.")
 	return data
 
 def check_path(file, file_path, mode=os.R_OK):
@@ -165,17 +175,17 @@ class QuietArgumentParser(argparse.ArgumentParser):
 		globals.quiet = args.count('-q') + args.count('--quiet')
 		globals.debug = args.count('-d') + args.count('--debug')
 
+		arg_l = list(arg_all.intersection(set(['-l', '--load_tests'])))
 		# Find load_tests action and run it manually, this is the only way to force
 		# CustomLAction process its 'default'. We do it so help screen can display
 		# loaded defaults
-		arg_l = list(arg_all.intersection(set(['-l', '--load_tests'])))
-
 		if not arg_l:
 			for action in self._actions:
 				if action.dest == 'load_tests':
 					action(self, None, action.default)
 					break
-		else: # also guard against '-l' being after -t or -r. we need it first
+		# also guard against '-l' being after -t or -r. we need it first
+		else:
 			arg_t_r = list(arg_all.intersection(set(['-t', '--test', '-r', '--reference'])))
 			if arg_t_r:
 				position_l = len(args) - 1 - list(reversed(args)).index(arg_l[0])
@@ -188,7 +198,8 @@ class QuietArgumentParser(argparse.ArgumentParser):
 
 	def error(self, message, code=ExitCode.commandline.value):
 		if not globals.quiet:
-			self.print_usage()
+			if code == ExitCode.commandline.value:
+				self.print_usage()
 			self.exit(code, f"error: {message}\n")
 		sys.exit(code)
 
@@ -199,30 +210,30 @@ class QuietArgumentParser(argparse.ArgumentParser):
 
 # ----------------------------------------------------------------------------
 class CustomLAction(argparse.Action):
-	def __call__(self, parser, namespace, values, option_string=None):
+	def __call__(self, parser, namespace, json_files, option_string=None):
 		global loaded_tests, test_vectors
 		test_vectors = {}
 
-		if not values:
+		if not json_files:
 			parser.error(f"'{option_string}' requires at least one argument - {self.help % {'default': self.default}}")
 		else:
 			# detect if we are being run from QuietArgumentParser aka
 			# running with no '-l' and trying to load self.default
-			if not namespace and values == self.default:
+			if not namespace and json_files == self.default:
 				print_d(f"Trying to load default {self.default}, checking if it exists.")
 				_, file_path_result = check_path(self.default, '')
 				if file_path_result:
 					print_d(f"{self.default} doesnt exists, no tests will be available.")
 					return
 				# self.default is a string, we need list
-				values = [values]
+				json_files = [json_files]
 
-			for value in values:
-				tests = load_json(value)
-				print_d(f"Loaded {value} tests")
+			for json_file in json_files:
+				tests = load_json(json_file)
+				print_d(f"Loaded {json_file} tests.")
 				if globals.debug > 1:
 					print_d(json.dumps(tests, indent='\t'))
-				loaded_tests.append(value)
+				loaded_tests.append(json_file)
 
 				test_everything = 1
 				if test_everything:
@@ -307,10 +318,10 @@ class CustomTAction(argparse.Action):
 				if sample not in test_vectors[decoder]:
 					parser.error(f"Invalid sample name '{sample}' for decoder '{decoder}' in '{option_string} {value}'. Available samples for '{decoder}':\n {available_samples}")
 
+				max_key_len = len(max((k for k in test_vectors[decoder][sample].keys() if k != 'path'), key=len, default=''))
 				# sample valid, but no tests given
 				if len(tests) == 0:
 					# list comprehension filter to handle stupid optional "desc" field, use longest sample name to left align/pad spaces (<) to nicely line up dashes
-					max_key_len = len(max((k for k in test_vectors[decoder][sample].keys() if k != 'path'), key=len, default=''))
 					if max_key_len:
 						parser.error(
 							f"'{option_string} {decoder}:{sample}' requires at least one test name. Available tests:\n "
@@ -331,9 +342,10 @@ class CustomTAction(argparse.Action):
 						parser.error(
 							f"Invalid test '{test}' for '{decoder}:{sample}' in '{option_string} {value}'. Available tests:\n "
 							+ '\n '.join([
-								f"{k:<{len(max(test_vectors[decoder][sample],key=len))}} - {v['desc']}"
-								if 'desc' in v else k
-								for k, v in test_vectors[decoder][sample].items()
+								f"{key:<{max_key_len}} - {value['desc']}"
+								if 'desc' in value else key
+								for key, value in test_vectors[decoder][sample].items()
+								if key != 'path'
 							])
 						)
 					test_list.append([decoder, sample, test])
@@ -405,6 +417,7 @@ def sigrok_cli(decoder, sample, test):
 			output_path = os.path.join(output_dir, f"{output_file}")
 			f = open(output_path, 'wb')
 
+		progress_treshold = globals.size * globals.progress * 0.01
 		# pump that pipe Mario
 		while True:
 			data = proc_sig.stdout.read(65535)
@@ -420,9 +433,10 @@ def sigrok_cli(decoder, sample, test):
 			if globals.progress:
 				with lock:
 					globals.counter += len(data)
-					if globals.counter > (globals.size * (globals.progress * 0.01)) or globals.counter == globals.size:
+					if globals.counter > progress_treshold:
+						globals.progress = round((globals.counter / globals.size) * 100 / args.progress) * args.progress
+						progress_treshold = globals.size * globals.progress * 0.01
 						print(f"Progress: {globals.progress}% \r", end="")
-						globals.progress += args.progress
 
 		f.flush()
 		f.close()
@@ -506,12 +520,27 @@ def compare_with_reference(output, reference):
 
 	if globals.debug > 1:
 		print_d('reference', json.dumps(reference, indent='\t'))
-	print_d('output', json.dumps(output, indent='\t'))
+		print_d('output', json.dumps(output, indent='\t'))
 
 	for decoder in output:
 		for sample in output[decoder]:
 			for test in output[decoder][sample]:
 				total_tests += 1
+				output_file = f"{decoder}-{sample}-{test}"
+				diff_instruction = ""
+				if args.sevenzip_path != 'none':
+					diff_instruction = (
+						f"\n\tTo diff, extract files and compare:\n"
+						f"\t  {args.sevenzip_path} e reference.7z {output_file} -o./reference\n"
+						f"\t  {args.sevenzip_path} e {output_file}.7z {output_file} -o./test\n"
+						f"\t  diff ./reference/{output_file} ./test/{output_file}"
+					)
+				else:
+					diff_instruction = (
+						f"\n\tTo diff, compare files directly:\n"
+						f"\t  diff ./reference/{output_file} ./test/{output_file}"
+					)
+
 				if decoder not in reference:
 					test_failures.append(f"Decoder '{decoder}' not found in reference")
 					continue
@@ -532,20 +561,20 @@ def compare_with_reference(output, reference):
 					continue
 
 				if ref_data.get('size') != gen_data['size']:
-					test_failures.append(f"Test '{decoder}:{sample}:{test}' - Size mismatch: expected {ref_data.get('size', 'N/A')}, got {gen_data['size']}")
+					test_failures.append(f"Test '{decoder}:{sample}:{test}' - Size mismatch: expected {ref_data.get('size', 'N/A')}, got {gen_data['size']}{diff_instruction}")
 					continue
 
 				if 'crc' in ref_data and 'crc' in gen_data:
 					if ref_data['crc'] != gen_data['crc']:
-						test_failures.append(f"Test '{decoder}:{sample}:{test}' - CRC mismatch: expected {ref_data['crc']}, got {gen_data['crc']}")
+						test_failures.append(f"Test '{decoder}:{sample}:{test}' - CRC mismatch: expected {ref_data['crc']}, got {gen_data['crc']}{diff_instruction}")
 
 				if 'blake2b' in ref_data and 'blake2b' in gen_data:
 					if ref_data['blake2b'] != gen_data['blake2b']:
-						test_failures.append(f"Test '{decoder}:{sample}:{test}' - Blake2b mismatch")
+						test_failures.append(f"Test '{decoder}:{sample}:{test}' - Blake2b mismatch{diff_instruction}")
 
 				if 'sha256' in ref_data and 'sha256' in gen_data:
 					if ref_data['sha256'] != gen_data['sha256']:
-						test_failures.append(f"Test '{decoder}:{sample}:{test}' - SHA256 mismatch")
+						test_failures.append(f"Test '{decoder}:{sample}:{test}' - SHA256 mismatch{diff_instruction}")
 
 	if test_failures:
 		parser.error(f"\n{len(test_failures)} test(s) failed:\n"
@@ -553,7 +582,7 @@ def compare_with_reference(output, reference):
 				for failure in test_failures
 			), ExitCode.test_fail.value)
 	else:
-		print_(f"\nAll {total_tests} tests passed verification against reference.json")
+		print_(f"\nAll {total_tests} tests passed verification against the loaded reference data")
 		sys.exit(ExitCode.success.value)
 
 def main():
@@ -578,7 +607,7 @@ Using automagic .py Windows file association by executing command:\n\
  >sidecat.py -whatever\n\
 will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\open\\command only passes .py file and nothing else. Stupid defaults can be changed by adding %* at the end of this registry key."
 
-	global parser # we will use our custom parser.error(message,exitcode) thru whole program
+	global parser # we will use our custom parser.error(message, exitcode) thru whole program
 	parser = QuietArgumentParser(prog='sidecat', description="SIgrok DECode Automated Testing (%(prog)s) framework for sigrok, libsigrokdecode and sigrok decoders. Runs battery of test vectors, compares results against reference database, sets non-zero Exit Code on failure.", epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('-v', '--version', action='version', version='%(prog)s v1.0')
 	# needs to be here on top so help alt
@@ -597,7 +626,6 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 	parser.add_argument("-d", "--debug", action='store_true', help="Debug prints, use '-d -d' to debug even harder! Disables --progress, ignores --quiet.")
 	args = parser.parse_args()
 
-	# Updated size calculation for new structure
 	globals.size = sum([
 		test_vectors[decoder][sample][test].get('size', 0)
 		for decoder in test_vectors
@@ -610,9 +638,12 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		args.progress = 'none'
 
 	if args.test:
-		reference_data = load_json('reference.json')
-		if not len(reference_data):
-			parser.error(f"reference.json doesnt contain reference database.", ExitCode.internal.value)
+		globals.size = sum([
+			test_vectors[decoder][sample][test].get('size', 0)
+			for decoder, sample, test in test_list
+		])
+		if not len(test_vectors):
+			parser.error(f"Loaded test vectors do not contain reference data.", ExitCode.internal.value)
 
 	if args.reference:
 		test_list = [
@@ -626,7 +657,9 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 
 	if args.progress != 'none' and not args.quiet:
 		args.progress = int(args.progress)
-		globals.progress = args.progress
+		# progress counter onyl possible if we have size
+		if globals.size > 0:
+			globals.progress = args.progress
 
 	args.sigrok_path, sigrok_path_result = check_path('sigrok-cli' + ('.exe' if os.path.basename(sys.executable).endswith(".exe") else ''), args.sigrok_path, os.X_OK)
 	match sigrok_path_result:
@@ -670,20 +703,39 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		except Exception as e:
 			executor.shutdown()
 			parser.error(f"Worker raised an error: {e}", ExitCode.internal.value)
+		print_("")
 
 	if args.reference:
-		print_d('test_vectors',json.dumps(test_vectors, indent='\t'))
-		print_d('output_files',json.dumps(output_files, indent='\t'))
+		print_d('test_vectors', json.dumps(test_vectors, indent='\t'))
+		print_d('output_files', json.dumps(output_files, indent='\t'))
 
 		output_files = dict_merge_preserve_source_order(test_vectors, output_files)
-		save_json('reference.json', output_files)
+		if len(loaded_tests) != 1:
+			parser.error("Updating multiple loaded test files not supported. Please load a single file.", ExitCode.internal.value)
+		file_to_update = loaded_tests[0]
+		temp_file = file_to_update + '.tmp'
+		save_json(temp_file, output_files)
+		updated_data = load_json(temp_file, reference_required=True)
+
+		if not os.access(file_to_update, os.W_OK):
+			parser.error(f"Cannot update '{file_to_update}': No write permission.", ExitCode.internal.value)
+		try:
+			os.remove(file_to_update)
+		except OSError as e:
+			parser.error(f"Failed to remove '{file_to_update}': {e}", ExitCode.internal.value)
+
+		try:
+			os.rename(temp_file, file_to_update)
+		except OSError as e:
+			parser.error(f"Failed to rename '{temp_file}' to '{file_to_update}': {e}", ExitCode.internal.value)
+
 		reference_pack(test_list)
-		print_(f"All sigrok_cli instances completed. reference.json metadata and {'reference.7z' if args.sevenzip_path != 'none' else f'{globals.counter / 1000**2:.2f}MB of uncompressed files in ./reference/'} generated successfully.")
+		print_(f"All sigrok_cli instances completed. {file_to_update} updated with metadata and {'reference.7z' if args.sevenzip_path != 'none' else f'{globals.counter / 1000**2:.2f}MB of uncompressed files in ./reference/'} generated successfully.")
 		sys.exit(ExitCode.success.value)
 
 	if args.test:
 		save_json('test.json', output_files)
-		compare_with_reference(output_files, reference_data)
+		compare_with_reference(output_files, test_vectors)
 
 if __name__ == "__main__":
 	main()
