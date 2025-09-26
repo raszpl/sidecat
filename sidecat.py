@@ -419,9 +419,9 @@ def sigrok_cli(decoder, sample, test):
 				with lock:
 					globals.counter += len(data)
 					if globals.counter >= progress_treshold:
+						print(f"Progress: {globals.progress}% \r", end="")
 						globals.progress = round((globals.counter / globals.size) * 100 / args.progress + 1) * args.progress
 						progress_treshold = round(globals.size * globals.progress * 0.01)
-						print(f"Progress: {globals.progress}% \r", end="")
 
 		f.flush()
 		f.close()
