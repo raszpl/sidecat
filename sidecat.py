@@ -7,6 +7,7 @@ lock = threading.RLock()
 class globals:
 	counter = 0
 	progress = 0
+	treshold = 0
 	size = 0
 	quiet = False
 	debug = False
@@ -402,7 +403,6 @@ def sigrok_cli(decoder, sample, test):
 			output_path = os.path.join(output_dir, f"{output_file}")
 			f = open(output_path, 'wb')
 
-		progress_treshold = round(globals.size * globals.progress * 0.01)
 		# pump that pipe Mario
 		while True:
 			data = proc_sig.stdout.read(65535)
@@ -418,10 +418,11 @@ def sigrok_cli(decoder, sample, test):
 			if globals.progress:
 				with lock:
 					globals.counter += len(data)
-					if globals.counter >= progress_treshold:
-						print(f"Progress: {globals.progress}% \r", end="")
+					if globals.counter >= globals.treshold:
+						print(f"P1: {globals.progress} {globals.counter} {globals.treshold}")
+						#print(f"Progress: {globals.progress}% \r", end="")
 						globals.progress = round((globals.counter / globals.size) * 100 / args.progress + 1) * args.progress
-						progress_treshold = round(globals.size * globals.progress * 0.01)
+						globals.treshold = round(globals.size * globals.progress * 0.01)
 
 		f.flush()
 		f.close()
@@ -625,14 +626,6 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 	parser.add_argument("-d", "--debug", action='store_true', help="Debug prints, use '-d -d' to debug even harder! Disables --progress, ignores --quiet.")
 	args = parser.parse_args()
 
-	globals.size = sum([
-		test_vectors[decoder][sample][test].get('size', 0)
-		for decoder in test_vectors
-		for sample in test_vectors[decoder]
-		for test in test_vectors[decoder][sample]
-		if test != 'path'
-	])
-
 	if globals.debug:
 		args.progress = 'none'
 
@@ -653,20 +646,20 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		if not len(test_vectors):
 			parser.error(f"Loaded test vectors do not contain reference data.", ExitCode.internal.value)
 
-		globals.size = sum([
-			test_vectors[decoder][sample][test].get('size', 0)
-			for decoder, sample, test in tests_selected
-		])
-
 	if args.reference:
 		print_d(f"Regenerating {len(tests_list_all)} tests for {len(test_vectors)} decoders.")
 		tests_selected = tests_list_all
 
 	if args.progress != 'none' and not args.quiet:
 		args.progress = int(args.progress)
+		globals.size = sum([
+			test_vectors[decoder][sample][test].get('size', 0)
+			for decoder, sample, test in tests_selected
+		])
 		# progress counter onyl possible if we have size
 		if globals.size > 0:
 			globals.progress = args.progress
+			globals.treshold = round(globals.size * globals.progress * 0.01)
 
 	args.sigrok_path, sigrok_path_result = check_path('sigrok-cli' + ('.exe' if os.path.basename(sys.executable).endswith(".exe") else ''), args.sigrok_path, os.X_OK)
 	match sigrok_path_result:
