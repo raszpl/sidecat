@@ -1,0 +1,68 @@
+{
+	"mfm": {
+		"fdd_fm": {
+			"path": "../test",
+			"all": {
+				"options": "data_rate=125000:encoding=FM:type=FDD:data_crc_bits=16:data_crc_poly=0x1021:sect_len=256:dsply_pfx=yes:dsply_sn=yes"
+			}
+		},
+		"fdd_mfm": {
+			"path": "../test",
+			"all": {
+				"options": "data_rate=250000:encoding=MFM:type=FDD:data_crc_bits=16:data_crc_poly=0x1021:sect_len=256:dsply_pfx=yes:dsply_sn=yes"
+			}
+		},
+		"hdd_mfm": {
+			"path": "../test",
+			"all": {
+				"options": "dsply_pfx=yes:dsply_sn=yes"
+			}
+		},
+		"hdd_mfm_sector": {
+			"path": "../test",
+			"default": {
+			},
+			"all": {
+				"options": "dsply_pfx=yes:dsply_sn=yes",
+				"desc": "with prefixes and sample numbers"
+			},
+			"nopfxnosn": {
+				"options": "dsply_pfx=no:dsply_sn=no",
+				"desc": "no prefixes, no sample numbers. Should be same as default"
+			},
+			"fields": {
+				"annotate": "fields",
+				"desc": "only fields"
+			},
+			"reports": {
+				"options": "report=DAM:report_qty=1",
+				"annotate": "reports",
+				"desc": "one Report triggered on Data Address Mark"
+			},
+			"crc": {
+				"annotate": "crc",
+				"desc": "only crc fields"
+			},
+			"headcrce": {
+				"options": "header_crc_bits=32",
+				"annotate": "cre",
+				"desc": "deliberately set wrong Header crc size to generate crc error"
+			},
+			"headpolycrce": {
+				"options": "header_crc_poly=0x1022",
+				"annotate": "cre",
+				"desc": "deliberately set wrong Header crc poly to generate crc error"
+			},
+			"datacrce": {
+				"options": "data_crc_bits=16",
+				"annotate": "cre",
+				"desc": "deliberately set wrong Data crc size to generate crc error"
+			},
+			"datapolycrce": {
+				"options": "data_crc_poly=0x1021",
+				"annotate": "cre",
+				"desc": "deliberately set wrong Data crc poly to generate crc error"
+			}
+		}
+	}
+}
