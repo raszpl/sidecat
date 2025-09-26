@@ -211,7 +211,7 @@ class QuietArgumentParser(argparse.ArgumentParser):
 # ----------------------------------------------------------------------------
 class CustomLAction(argparse.Action):
 	def __call__(self, parser, namespace, json_file, option_string=None):
-		global test_vectors
+		global test_vectors, tests_list_all
 
 		# detect if we are being run from QuietArgumentParser aka
 		# running with no '-l' and trying to load self.default
@@ -223,14 +223,14 @@ class CustomLAction(argparse.Action):
 
 		print_d(f"Trying to load {json_file}")
 		test_vectors = load_json(json_file)
-		test_list = [
+		tests_list_all = [
 			(decoder, sample, test)
 			for decoder in test_vectors
 			for sample in test_vectors[decoder]
 			for test in test_vectors[decoder][sample]
 			if test != 'path'
 		]
-		print_d(f"Loaded {json_file} containing {len(test_list)} tests for {len(test_vectors)} decoder(s). Available decoder:sample:test combinations:\n "
+		print_d(f"Loaded {json_file} containing {len(tests_list_all)} tests for {len(test_vectors)} decoder(s). Available decoder:sample:test combinations:\n "
 			+ '\n '.join([
 				f"{decoder}:{sample}:{':'.join(key for key in tests.keys() if key != 'path')}"
 				for decoder in test_vectors
@@ -263,20 +263,14 @@ class CustomTAction(argparse.Action):
 		super().__init__(option_strings, dest, nargs=nargs, **kwargs)
 
 	def __call__(self, parser, namespace, values, option_string=None):
-		global test_vectors, test_list
-		test_list = []
+		global tests_selected
+		tests_selected = []
 
 		if len(test_vectors) == 0:
 			parser.error(f"Default {parser.get_default('load_tests')} not loaded or empty, no decoder:sample:test(s) available.")
 
 		if values == ['all']:
-			test_list = [
-				(decoder, sample, test)
-				for decoder in test_vectors
-				for sample in test_vectors[decoder]
-				for test in test_vectors[decoder][sample]
-				if test != 'path'
-			]
+			tests_selected = tests_list_all
 		# empty -t
 		elif not values:
 			parser.error(
@@ -350,9 +344,9 @@ class CustomTAction(argparse.Action):
 								if key != 'path'
 							])
 						)
-					test_list.append([decoder, sample, test])
+					tests_selected.append([decoder, sample, test])
 
-		setattr(namespace, self.dest, test_list)
+		setattr(namespace, self.dest, values)
 # ----------------------------------------------------------------------------
 def save_json(json_file, data):
 	try:
@@ -473,12 +467,12 @@ def sigrok_cli(decoder, sample, test):
 		}
 	}
 
-def reference_pack(test_list):
+def reference_pack():
 	if args.sevenzip_path == 'none':
 		print_d("No 7z compression for reference packing.")
 		return
 	try:
-		for decoder, sample, test in test_list:
+		for decoder, sample, test in tests_list_all:
 			output_file = f"{decoder}-{sample}-{test}"
 
 			first_7z = f"{args.sevenzip_path} e {output_file}.7z {output_file} -so"
@@ -586,10 +580,12 @@ def compare_with_reference(output, reference):
 		sys.exit(ExitCode.success.value)
 
 def main():
-	global args, test_vectors, test_list
+	global parser # we will use custom parser.error(message, exitcode) thru whole program
+	global args, test_vectors, tests_list_all, tests_selected
 	test_vectors = {}
+	tests_list_all = []
+	tests_selected = []
 	output_files = {}
-	test_list = []
 
 	epilog = "\n\nExit code meaning:" +\
 		"\n 0: All tests passed successfully" +\
@@ -606,7 +602,6 @@ Using automagic .py Windows file association by executing command:\n\
  >sidecat.py -whatever\n\
 will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\open\\command only passes .py file and nothing else. Stupid defaults can be changed by adding %* at the end of this registry key."
 
-	global parser # we will use our custom parser.error(message, exitcode) thru whole program
 	parser = QuietArgumentParser(prog='sidecat', description="SIgrok DECode Automated Testing (%(prog)s) framework for sigrok, libsigrokdecode and sigrok decoders. Runs battery of test vectors, compares results against reference database, sets non-zero Exit Code on failure.", epilog=epilog, formatter_class=argparse.RawDescriptionHelpFormatter)
 	parser.add_argument('-v', '--version', action='version', version='%(prog)s v1.0')
 	# needs to be here on top so help alt
@@ -637,22 +632,17 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		args.progress = 'none'
 
 	if args.test:
-		globals.size = sum([
-			test_vectors[decoder][sample][test].get('size', 0)
-			for decoder, sample, test in test_list
-		])
 		if not len(test_vectors):
 			parser.error(f"Loaded test vectors do not contain reference data.", ExitCode.internal.value)
 
+		globals.size = sum([
+			test_vectors[decoder][sample][test].get('size', 0)
+			for decoder, sample, test in tests_selected
+		])
+
 	if args.reference:
-		test_list = [
-			(decoder, sample, test)
-			for decoder in test_vectors
-			for sample in test_vectors[decoder]
-			for test in test_vectors[decoder][sample]
-			if test != 'path'
-		]
-		print_d(f"Regenerating {len(test_list)} tests for {len(test_vectors)} decoders")
+		print_d(f"Regenerating {len(tests_list_all)} tests for {len(test_vectors)} decoders.")
+		tests_selected = tests_list_all
 
 	if args.progress != 'none' and not args.quiet:
 		args.progress = int(args.progress)
@@ -683,12 +673,12 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 				else:
 					parser.error(f"The file '{args.sevenzip_path}' does not exist.", ExitCode.internal.value)
 
-	print_(f"Starting {min(args.concurrency, len(test_list))} concurrent sigrok_cli instances. {len(test_list)} test cases to process.")
+	print_(f"Starting {min(args.concurrency, len(tests_selected))} concurrent sigrok_cli instances. {len(tests_selected)} test cases to process.")
 
 	with concurrent.futures.ThreadPoolExecutor(max_workers=args.concurrency) as executor:
 		futures = [
 			executor.submit(sigrok_cli, decoder, sample, test)
-			for decoder, sample, test in test_list
+			for decoder, sample, test in tests_selected
 		]
 		try:
 			for future in concurrent.futures.as_completed(futures):
@@ -726,12 +716,12 @@ will NOT pass any parameters. HKEY_CLASSES_ROOT\\Applications\\py.exe\\shell\\op
 		except OSError as e:
 			parser.error(f"Failed to rename '{temp_file}' to '{file_to_update}': {e}", ExitCode.internal.value)
 
-		reference_pack(test_list)
+		reference_pack()
 		print_(f"All sigrok_cli instances completed. {file_to_update} updated with metadata and {'reference.7z' if args.sevenzip_path != 'none' else f'{globals.counter / 1000**2:.2f}MB of uncompressed files in ./reference/'} generated successfully.")
 		sys.exit(ExitCode.success.value)
 
 	if args.test:
-		save_json('test.json', output_files)
+		save_json('test_report.json', output_files)
 		compare_with_reference(output_files, test_vectors)
 
 if __name__ == "__main__":
