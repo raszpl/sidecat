@@ -102,7 +102,7 @@ Test vectors are defined in JSON files (e.g., `sidecat.json`). `--reference` wil
         "annotate": "annotation_flags (optional)",
         "desc": "Test description (optional)",
         "size": 12345, (automatically generated)
-        "crc": "0x1a2b3c4d", (automatically generated)
+        "crc": "1a2b3c4d", (automatically generated)
         "blake2b": "128-character-hex-string", (automatically generated)
         "sha256": "64-character-hex-string" (automatically generated)
       },
