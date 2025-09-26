@@ -61,7 +61,7 @@ schema = {
 								},
 								"crc": {
 									"type": "string",
-									"pattern": "^0x[0-9a-fA-F]+$",
+									"pattern": "^[0-9a-fA-F]{8}$",
 									"description": "CRC checksum in hexadecimal"
 								},
 								"blake2b": {
@@ -402,7 +402,7 @@ def sigrok_cli(decoder, sample, test):
 			output_path = os.path.join(output_dir, f"{output_file}")
 			f = open(output_path, 'wb')
 
-		progress_treshold = globals.size * globals.progress * 0.01
+		progress_treshold = round(globals.size * globals.progress * 0.01)
 		# pump that pipe Mario
 		while True:
 			data = proc_sig.stdout.read(65535)
@@ -418,9 +418,9 @@ def sigrok_cli(decoder, sample, test):
 			if globals.progress:
 				with lock:
 					globals.counter += len(data)
-					if globals.counter > progress_treshold:
-						globals.progress = round((globals.counter / globals.size) * 100 / args.progress) * args.progress
-						progress_treshold = globals.size * globals.progress * 0.01
+					if globals.counter >= progress_treshold:
+						globals.progress = round((globals.counter / globals.size) * 100 / args.progress + 1) * args.progress
+						progress_treshold = round(globals.size * globals.progress * 0.01)
 						print(f"Progress: {globals.progress}% \r", end="")
 
 		f.flush()
@@ -448,7 +448,7 @@ def sigrok_cli(decoder, sample, test):
 			sample: {
 				test: {
 					'size': size,
-					'crc': hex(checksum),
+					'crc': f"{checksum:08x}",
 					'blake2b': hash_blake2b.hexdigest(),
 					'sha256': hash_sha256.hexdigest()
 				}
