@@ -419,18 +419,19 @@ def sigrok_cli(decoder, sample, test):
 				with lock:
 					globals.counter += len(data)
 					if globals.counter >= globals.treshold:
-						print(f"P1: {globals.progress} {globals.counter} {globals.treshold}")
-						#print(f"Progress: {globals.progress}% \r", end="")
+						print(f"Progress: {globals.progress}% \r", end="")
 						globals.progress = round((globals.counter / globals.size) * 100 / args.progress + 1) * args.progress
 						globals.treshold = round(globals.size * globals.progress * 0.01)
 
 		f.flush()
 		f.close()
 
-		proc_sig.wait()
+		stdout1, stderr1 = proc_sig.communicate(timeout=args.timeout)
 
-		if proc_sig.returncode != 0:
-			parser.error(f"sigrok-cli error (exit code:{proc_sig.returncode}) for {decoder}:{sample}:{test}: {proc_sig.stderr.read().decode()}", ExitCode.sigrok_fail.value)
+		# Cant rely solely on exitcode, sigrok-cli doesnt return non 0 one when its
+		# srd python interpreter throws an exception!
+		if proc_sig.returncode != 0 or stderr1:
+			parser.error(f"sigrok-cli error (exit code:{proc_sig.returncode}) for {decoder}:{sample}:{test}: {stderr1.decode()}", ExitCode.sigrok_fail.value)
 
 		if args.sevenzip_path != 'none':
 			# FIXME: this is wrong, timeout is set too late
