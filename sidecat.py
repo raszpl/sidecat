@@ -280,7 +280,7 @@ class CustomTAction(argparse.Action):
 		# empty -t
 		elif not values:
 			parser.error(
-				f"Loaded {getattr(namespace, 'load_tests')} containint following decoder:sample:test combinations:\n "
+				f"Loaded {getattr(namespace, 'load_tests')} containing following decoder:sample:test combinations:\n "
 				+ '\n '.join([
 					f"{decoder}:{sample}:{':'.join(key for key in tests.keys() if key != 'path')}"
 					for decoder in test_vectors
